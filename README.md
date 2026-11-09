@@ -4,6 +4,8 @@ This is an altered copy of [FluidX3D](https://github.com/ProjectPhysX/FluidX3D),
 
 The repository holds two versions. The first, tagged commit is the source exactly as it was compiled for the published results. The current version adds the fixes from an independent review, listed in `CHANGES.md` under "Fixes after the published results"; on the machine that computed the results they change nothing in the outputs apart from rounding in the means and standard deviations, new validation errors and new lines in `meta.txt`.
 
+Regression test (2026-11-09): the as-built city run of the study (750 x 400 x 200 cells of 3 m, 600 s) repeated with the published-results build and with this fixed build on the same Apple M5 Pro: mean-speed planes differ by at most 2.6e-8 lattice units (relative 1.3e-6), the standard-deviation planes by at most 4e-5 (the double accumulators' rounding), the 3D box is byte-identical, and `meta.txt` differs only by the new lines. The box read-back fix is a no-op on a unified-memory GPU, as expected.
+
 ## What is altered
 
 Four files differ from upstream commit `b85d64e`; `CHANGES.md` has the details and `changes.patch` the diff.
