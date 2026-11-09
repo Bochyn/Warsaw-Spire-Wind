@@ -1,7 +1,7 @@
 // Altered from FluidX3D commit b85d64e (v3.8) for a wind study of Warsaw Spire and Łucka street, 2026-11; see README.md of the published repository.
 #include "lbm.hpp"
 #include <cstdlib>
-// local change for the PKiN preview: colour scale and Q threshold can be set at run time (FX_U_MAX, FX_Q)
+// local change for the wind study: colour scale and Q threshold can be set at run time (FX_U_MAX, FX_Q)
 static float fx_env(const char* k, const float d) { const char* v = getenv(k); return v ? (float)atof(v) : d; }
 
 

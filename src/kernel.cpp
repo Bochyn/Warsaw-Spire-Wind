@@ -148,7 +148,7 @@ string opencl_c_container() { return R( // ########################## begin of O
 )+R(int colorscale_twocolor(float x) { // coloring scheme (float [0, 1] -> int color)
 	return x>0.5f ? color_mix(0xFFAA00, def_background_color, clamp(2.0f*x-1.0f, 0.0f, 1.0f)) : color_mix(def_background_color, 0x0080FF, clamp(2.0f*x, 0.0f, 1.0f)); // red - gray - blue
 }
-)+R(int colorscale_navy(float x) { // local change for the PKiN preview: one hue, light blue to brand navy #163795
+)+R(int colorscale_navy(float x) { // local change for the wind study: one hue, light blue to navy #163795
 	x = sqrt(clamp(x, 0.0f, 1.0f));
 	return color_from_floats(0.80f+(0.086f-0.80f)*x, 0.84f+(0.216f-0.84f)*x, 0.94f+(0.584f-0.94f)*x);
 }
