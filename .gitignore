@@ -1,2 +1,8 @@
+# build outputs of build.sh
 bin/
 temp/
+# inputs, runs and results made by the recipe in docs/VALIDATION.md
+validation/inputs/
+validation/runs/
+validation/results/
+validation/*.xls

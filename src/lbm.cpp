@@ -3,6 +3,9 @@
 #include <cstdlib>
 // local change for the wind study: colour scale and Q threshold can be set at run time (FX_U_MAX, FX_Q)
 static float fx_env(const char* k, const float d) { const char* v = getenv(k); return v ? (float)atof(v) : d; }
+#ifdef GROUND_WALL_MODEL
+float fx_ground_cd = 0.0f; // drag coefficient Cd of the wall-stress ground; the setup sets it from Z0_M before it creates the LBM object
+#endif // GROUND_WALL_MODEL
 
 
 
@@ -182,7 +185,29 @@ void LBM_Domain::allocate(Device& device) {
 void LBM_Domain::enqueue_initialize() { // call kernel_initialize
 	kernel_initialize.enqueue_run();
 }
+void LBM_Domain::enable_inlet(const uint k, const ulong step0) { // wind study: inflow playback at the plane x = 0 (single domain only; the setup checks that)
+	inlet = Memory<float>(device, (ulong)Ny*(ulong)Nz, 6u, true, true, 0.0f, false); // never zero-copy: write_to_device() is then a real transfer on every device, also on a discrete GPU
+	kernel_set_inlet = Kernel(device, (ulong)Ny*(ulong)Nz, "set_inlet", u, flags, inlet, 0.0f, 0u);
+	inlet_k = k;
+	inlet_step0 = step0;
+}
+void LBM_Domain::enable_xst(const vector<uint>& xs) { // wind study: recording on x-normal planes without reading the whole velocity field (single domain only)
+	const uint count = (uint)xs.size();
+	xst_x = Memory<uint>(device, (ulong)count, 1u, true, true, 0u, false); // never zero-copy: write_to_device() is a real transfer on every device
+	for(uint p=0u; p<count; p++) xst_x[p] = xs[p];
+	xst_x.write_to_device();
+	xst_buf = Memory<float>(device, (ulong)count*(ulong)Ny*(ulong)Nz, 3u);
+	kernel_gather_planes = Kernel(device, (ulong)count*(ulong)Ny*(ulong)Nz, "gather_planes", u, xst_buf, xst_x, count);
+}
+void LBM_Domain::gather_planes() { // the kernel only reads u; the transfer is a no-op on zero-copy devices
+	kernel_gather_planes.run();
+	xst_buf.read_from_device();
+}
 void LBM_Domain::enqueue_stream_collide() { // call kernel_stream_collide to perform one LBM time step
+	if(inlet_k>0u) { // inflow playback: the inlet velocity of this step, interpolated linearly in time between the two stored planes
+		const ulong sp = t+inlet_step0; // playback step; plane j = sp/inlet_k is in slot j%2, plane j+1 in the other slot
+		kernel_set_inlet.set_parameters(3u, (float)(sp%(ulong)inlet_k)/(float)inlet_k, (uint)((sp/(ulong)inlet_k)%2ull)).enqueue_run();
+	}
 	kernel_stream_collide.set_parameters(4u, t, fx, fy, fz).enqueue_run();
 }
 void LBM_Domain::enqueue_update_fields() { // update fields (rho, u, T) manually
@@ -462,7 +487,13 @@ string LBM_Domain::device_defines(const Device_Info& device_info) const { return
 
 #ifdef SUBGRID
 	"\n	#define SUBGRID"
+	"\n	#define def_smag "+(getenv("FX_CS") ? to_string(25.455844f*sq(fx_env("FX_CS", 0.0f))) : string("0.76421222"))+"f" // 18*sqrt(2)*(C*Delta)^2; without FX_CS this is the upstream literal for C = 0.1733
 #endif // SUBGRID
+
+#ifdef GROUND_WALL_MODEL
+	"\n	#define GROUND_WALL_MODEL"
+	"\n	#define def_wm_cd "+to_string(fx_ground_cd)+"f" // Cd = (kappa/ln(z1/z0))^2 of the wall-stress ground
+#endif // GROUND_WALL_MODEL
 
 #ifdef PARTICLES
 	"\n	#define PARTICLES"

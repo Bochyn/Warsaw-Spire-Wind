@@ -1125,6 +1125,19 @@ string opencl_c_container() { return R( // ########################## begin of O
 	*uzn = uz*rhom1;
 } // calculate_rho_u()
 
+)+"#ifdef GROUND_WALL_MODEL"+R( // wind study: wall-stress condition for the first fluid layer above flat open ground (normal +z), D3Q19 only
+)+R(void apply_ground_stress(float* fhn) { // call right after load_f() for cells marked TYPE_X: all five neighbours below are solid, so fhn[9], fhn[16], fhn[11], fhn[18] hold the cell's own bounced-back DDFs
+	float t; // bounce-back returned 10 (-1,0,-1) as 9 (+1,0,+1) and 15 (+1,0,-1) as 16 (-1,0,+1): swapping 9 and 16 makes it a local specular reflection, which gives the tangential momentum back (zero wall stress)
+	t = fhn[ 9]; fhn[ 9] = fhn[16]; fhn[16] = t; // x
+	t = fhn[11]; fhn[11] = fhn[18]; fhn[18] = t; // y: 12 (0,-1,-1) came back as 11 (0,+1,+1), 17 (0,+1,-1) as 18 (0,-1,+1)
+	float rhon, uxn, uyn, uzn;
+	calculate_rho_u(fhn, &rhon, &uxn, &uyn, &uzn);
+	const float s = 0.5f*def_wm_cd*rhon*sqrt(sq(uxn)+sq(uyn)); // wall stress tau = rho*Cd*|u|*u opposes the flow, Cd = (kappa/ln(z1/z0))^2 with z1 = half a cell (log law at the cell centre)
+	fhn[ 9] -= s*uxn; fhn[16] += s*uxn; // takes tau_x = 2*s*ux out of the x-momentum; mass and z-momentum of the cell are unchanged
+	fhn[11] -= s*uyn; fhn[18] += s*uyn; // takes tau_y out of the y-momentum
+} // apply_ground_stress()
+)+"#endif"+R( // GROUND_WALL_MODEL
+
 )+"#ifdef VOLUME_FORCE"+R(
 )+R(void calculate_forcing_terms(const float ux, const float uy, const float uz, const float fx, const float fy, const float fz, float* Fin) { // calculate volume force terms Fin from velocity field (Guo forcing, Krueger p.233f)
 )+"#ifdef D2Q9"+R(
@@ -1519,6 +1532,9 @@ string opencl_c_container() { return R( // ########################## begin of O
 )+"#ifdef MOVING_BOUNDARIES"+R(
 	if(flagsn_bo==TYPE_MS) apply_moving_boundaries(fhn, j, u, flags); // apply Dirichlet velocity boundaries if necessary (reads velocities of only neighboring boundary cells, which do not change during simulation)
 )+"#endif"+R( // MOVING_BOUNDARIES
+)+"#ifdef GROUND_WALL_MODEL"+R(
+	if(flagsn&TYPE_X) apply_ground_stress(fhn); // first fluid layer above open ground: specular reflection minus the log-law wall stress
+)+"#endif"+R( // GROUND_WALL_MODEL
 
 	float rhon, uxn, uyn, uzn; // calculate local density and velocity for collision
 )+"#ifndef EQUILIBRIUM_BOUNDARIES"+R(
@@ -1631,7 +1647,7 @@ string opencl_c_container() { return R( // ########################## begin of O
 			Hxz += cxi*czi*fneqi; Hyz += cyi*czi*fneqi; Hzz += czi*czi*fneqi;
 		}
 		const float Q = sq(Hxx)+sq(Hyy)+sq(Hzz)+2.0f*(sq(Hxy)+sq(Hxz)+sq(Hyz)); // Q = H*H, turbulent eddy viscosity nut = (C*Delta)^2*|S|, intensity of local strain rate tensor |S|=sqrt(2*S*S)
-		w = 2.0f/(tau0+sqrt(sq(tau0)+0.76421222f*sqrt(Q)/rhon)); // 0.76421222 = 18*sqrt(2)*(C*Delta)^2, C = 1/pi*(2/(3*CK))^(3/4) = Smagorinsky-Lilly constant, CK = 3/2 = Kolmogorov constant, Delta = 1 = lattice constant
+		w = 2.0f/(tau0+sqrt(sq(tau0)+def_smag*sqrt(Q)/rhon)); // def_smag = 0.76421222 = 18*sqrt(2)*(C*Delta)^2 unless FX_CS sets another C (lbm.cpp), C = 1/pi*(2/(3*CK))^(3/4) = Smagorinsky-Lilly constant, CK = 3/2 = Kolmogorov constant, Delta = 1 = lattice constant
 	} // modity LBM relaxation rate by increasing effective viscosity in regions of high strain rate (add turbulent eddy viscosity), nu_eff = nu_0+nu_t
 )+"#endif"+R( // SUBGRID
 
@@ -1677,6 +1693,28 @@ string opencl_c_container() { return R( // ########################## begin of O
 
 	store_f(n, fhn, fi, j, t); // perform streaming (part 1)
 } // stream_collide()
+
+)+R(kernel void set_inlet(global float* u, const global uchar* flags, const global float* inlet, const float a, const uint slot0) { // wind study: inflow playback, writes the velocity of the fixed cells of the plane x = 0 before a time step; only enqueued when the setup switched it on (INFLOW)
+	const uint i = get_global_id(0); // i = y+Ny*z: the layout of one plane in the inlet buffer
+	if(i>=def_Ax) return; // the kernel range is rounded up to the workgroup size
+	const uxx n = (uxx)i*(uxx)def_Nx; // cell (0, y, z)
+	if((flags[n]&TYPE_BO)!=TYPE_E) return; // the ground cells of the plane stay solid
+	const uint o0 = slot0*3u*def_Ax, o1 = (1u-slot0)*3u*def_Ax; // the buffer holds two planes of 3*def_Ax floats (component-major, lattice units, mean profile included): slot0 is the plane of the last update, the other one the plane of the next update
+	const float b = 1.0f-a; // a = share of the way from the last update to the next: linear interpolation in time
+	u[                 n] = b*inlet[o0          +i]+a*inlet[o1          +i];
+	u[    def_N+(ulong)n] = b*inlet[o0+   def_Ax+i]+a*inlet[o1+   def_Ax+i];
+	u[2ul*def_N+(ulong)n] = b*inlet[o0+2u*def_Ax+i]+a*inlet[o1+2u*def_Ax+i];
+} // set_inlet()
+
+)+R(kernel void gather_planes(const global float* u, global float* out, const global uint* xs, const uint count) { // wind study: copies the velocity on the listed x-normal planes into a compact buffer, so that a sample moves these planes to the host and not the whole field; it only reads u
+	const uint g = get_global_id(0); // g = i+def_Ax*p: cell i = y+Ny*z of plane p
+	const uint total = count*def_Ax;
+	if(g>=total) return; // the kernel range is rounded up to the workgroup size
+	const uxx n = (uxx)xs[g/def_Ax]+(uxx)(g%def_Ax)*(uxx)def_Nx; // cell (xs[p], y, z)
+	out[         g] = u[                 n];
+	out[   total+g] = u[    def_N+(ulong)n];
+	out[2u*total+g] = u[2ul*def_N+(ulong)n];
+} // gather_planes()
 
 )+"#ifdef SURFACE"+R(
 )+R(kernel void surface_0(global fpxx* fi, const global float* rho, const global float* u, const global uchar* flags, global float* mass, const global float* massex, const global float* phi, const ulong t, const float fx, const float fy, const float fz) { // capture outgoing DDFs before streaming
@@ -1856,6 +1894,9 @@ string opencl_c_container() { return R( // ########################## begin of O
 )+"#ifdef MOVING_BOUNDARIES"+R(
 	if(flagsn_bo==TYPE_MS) apply_moving_boundaries(fhn, j, u, flags); // apply Dirichlet velocity boundaries if necessary (reads velocities of only neighboring boundary cells, which do not change during simulation)
 )+"#endif"+R( // MOVING_BOUNDARIES
+)+"#ifdef GROUND_WALL_MODEL"+R(
+	if(flagsn&TYPE_X) apply_ground_stress(fhn); // first fluid layer above open ground: specular reflection minus the log-law wall stress
+)+"#endif"+R( // GROUND_WALL_MODEL
 
 	float rhon, uxn, uyn, uzn; // calculate local density and velocity for collision
 	calculate_rho_u(fhn, &rhon, &uxn, &uyn, &uzn); // calculate density and velocity fields from fi

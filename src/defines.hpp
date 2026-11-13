@@ -11,7 +11,9 @@
 #define SRT // choose single-relaxation-time LBM collision operator; (default)
 //#define TRT // choose two-relaxation-time LBM collision operator
 
+#ifndef FP32_STORAGE // wind study: the build flag -DFP32_STORAGE keeps the DDFs in 32-bit floats (control runs, and the unit test of the wall-stress ground, where the FP16S rounding of a uniform flow would hide the momentum balance)
 #define FP16S // optional for 2x speedup and 2x VRAM footprint reduction: compress LBM DDFs to range-shifted IEEE-754 FP16; number conversion is done in hardware; all arithmetic is still done in FP32
+#endif // FP32_STORAGE
 //#define FP16C // optional for 2x speedup and 2x VRAM footprint reduction: compress LBM DDFs to more accurate custom FP16C format; number conversion is emulated in software; all arithmetic is still done in FP32
 
 //#define BENCHMARK // disable all extensions and setups and run benchmark setup instead
@@ -23,6 +25,7 @@
 //#define SURFACE // enables free surface LBM: mark fluid cells with TYPE_F; at initialization the TYPE_I interface and TYPE_G gas domains will automatically be completed; allocates an extra 12 Bytes/cell
 //#define TEMPERATURE // enables temperature extension; set fixed-temperature cells with TYPE_T (similar to EQUILIBRIUM_BOUNDARIES); allocates an extra 32 (FP32) or 18 (FP16) Bytes/cell
 #define SUBGRID // enables Smagorinsky-Lilly subgrid turbulence LES model to keep simulations with very large Reynolds number stable
+//#define GROUND_WALL_MODEL // wind study, off in the default build: wall-stress condition (log law, roughness Z0_M) for the first fluid layer above open flat ground instead of bounce-back; D3Q19 only; build with ./build.sh wall-model -DGROUND_WALL_MODEL
 //#define PARTICLES // enables particles with immersed-boundary method (for 2-way coupling also activate VOLUME_FORCE and FORCE_FIELD; only supported in single-GPU)
 
 //#define INTERACTIVE_GRAPHICS // enable interactive graphics; start/pause the simulation by pressing P; either Windows or Linux X11 desktop must be available; on Linux: change to "compile on Linux with X11" command in make.sh
@@ -74,6 +77,10 @@
 #else // FP32
 #define fpxx float
 #endif // FP32
+
+#if defined(GROUND_WALL_MODEL) && !defined(D3Q19)
+#error GROUND_WALL_MODEL is written for D3Q19 only
+#endif
 
 #ifdef BENCHMARK
 #undef UPDATE_FIELDS

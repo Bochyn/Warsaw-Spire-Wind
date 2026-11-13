@@ -1,3 +1,4 @@
+// Altered from FluidX3D commit b85d64e (v3.8) for a wind study of Warsaw Spire and Łucka street, 2026-11; see README.md of the published repository.
 #pragma once
 
 #include "defines.hpp"
@@ -6,6 +7,9 @@
 #include "units.hpp"
 #include "info.hpp"
 
+#ifdef GROUND_WALL_MODEL
+extern float fx_ground_cd; // drag coefficient of the wall-stress ground (lbm.cpp), set by the setup before the LBM object is created
+#endif // GROUND_WALL_MODEL
 uint bytes_per_cell_host(); // returns the number of Bytes per cell allocated in host memory
 uint bytes_per_cell_device(); // returns the number of Bytes per cell allocated in device memory
 uint bandwidth_bytes_per_cell_device(); // returns the bandwidth in Bytes per cell per time step from/to device memory
@@ -37,6 +41,10 @@ private:
 	Kernel kernel_update_fields; // reads DDFs and updates (rho, u, T) in device memory
 	Memory<fpxx> fi; // LBM density distribution functions (DDFs); only exist in device memory
 	ulong t_last_update_fields = max_ulong; // optimization to not call kernel_update_fields multiple times if (rho, u, T) are already up-to-date
+	Kernel kernel_set_inlet; // wind study: inflow playback, blends the two planes of the inlet buffer into u at x = 0 before every time step; unused unless enable_inlet() was called
+	uint inlet_k = 0u; // steps between two stored inlet planes; 0 = playback off (the default)
+	ulong inlet_step0 = 0ull; // playback step of solver step 0 (test hook; 0 in production)
+	Kernel kernel_gather_planes; // wind study: copies u on the listed x-normal planes into xst_buf; unused unless enable_xst() was called
 #ifdef FORCE_FIELD
 	Kernel kernel_update_force_field; // calculate forces from fluid on TYPE_S cells
 	Kernel kernel_reset_force_field; // reset force field (also on TYPE_S cells)
@@ -70,6 +78,12 @@ public:
 	Memory<float> rho; // density of every cell
 	Memory<float> u; // velocity of every cell
 	Memory<uchar> flags; // flags of every cell
+	Memory<float> inlet; // wind study: two inlet planes for the playback (Ny*Nz cells, 6 components: plane 0 u v w, plane 1 u v w; lattice units, mean profile included); empty unless enable_inlet() was called
+	void enable_inlet(const uint k, const ulong step0); // allocate the inlet buffer and switch the playback on: plane j (the inlet velocity at playback step j*k) lives in slot j%2
+	Memory<float> xst_buf; // wind study: velocity on the listed x-normal planes (planes*Ny*Nz cells, 3 components; within a component plane after plane, cell y+Ny*z); empty unless enable_xst() was called
+	Memory<uint> xst_x; // the x index of every listed plane
+	void enable_xst(const vector<uint>& xs); // allocate the buffers for the listed planes
+	void gather_planes(); // copy the planes on the device and bring them to the host; call after update_fields()
 #ifdef FORCE_FIELD
 	Memory<float> F; // individual force for every cell
 	Memory<float> object_sum; // sum of individual cell data for an object
