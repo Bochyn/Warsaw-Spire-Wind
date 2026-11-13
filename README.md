@@ -15,6 +15,8 @@ This is an altered copy of [FluidX3D](https://github.com/ProjectPhysX/FluidX3D),
 
 ## Results made with this source
 
+![Animation of the mean west wind 4.5 m above the ground around the Warsaw Spire complex](docs/images/mean-wind-near-ground.webp)
+
 | What the tower changes near the ground in a west wind | The wind-tunnel check, before and after the fixes (at 24 cells across the block) |
 |---|---|
 | ![Map of the wind with the tower minus the wind without it, 4.5 m above the ground](docs/images/what-the-tower-changes.webp) | ![Hits and misses at 60 of the 181 measured places around the AIJ case A block](docs/images/wind-tunnel-check.webp) |
@@ -93,7 +95,7 @@ ZREF_M=64 ALPHA=0.173 Z0_M=2.947e-4 T_SI=60 FRAMES=2 RENDER=0 OUT=runs/first-tes
 | `CHANGES.md` | every change against upstream, the record of the build and the history |
 | `docs/USAGE.md` | environment variables, input formats, outputs, limits of the setup |
 | `docs/VALIDATION.md` | the wind-tunnel check |
-| `docs/images/` | three images from the blog post |
+| `docs/images/` | three images and an animation from the blog post |
 | `validation/scripts/` | our scripts of the wind-tunnel check |
 | `validation/run-settings/` | the five run settings of the check |
 | `validation/inflow-calibration.json` | the calibration of the turbulent inflow |
@@ -125,4 +127,4 @@ The wind-tunnel benchmark and its data are cited in [docs/VALIDATION.md](docs/VA
 
 - The AIJ workbooks (download them from the AIJ page named in [docs/VALIDATION.md](docs/VALIDATION.md#data)).
 - The city model: height maps and the tower STL, built from Polish GUGiK elevation data and building footprints, and the inflow tables made for it.
-- The scripts that turned the city runs into the published images, and the results (raw arrays, frames, films). The three images in `docs/images/` are taken from the blog post.
+- The scripts that turned the city runs into the published images, and the results (raw arrays, frames, films). The images and the animation in `docs/images/` are taken from the blog post.
